@@ -17,6 +17,25 @@ import AuthButton from "@/components/AuthButton";
 
 type AppState = "planning" | "searching" | "routes" | "navigating" | "completed";
 
+// Haversine distance in meters for GPS-based arrival detection
+const distanceMeters = (
+  a: google.maps.LatLngLiteral,
+  b: google.maps.LatLngLiteral
+) => {
+  const R = 6371000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const h =
+    sinDLat * sinDLat +
+    Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
 export default function NavigatePage() {
   const { user } = useAuth();
   const [appState, setAppState] = useState<AppState>("planning");
@@ -111,95 +130,51 @@ export default function NavigatePage() {
   };
 
   const handleStartNavigation = () => {
-    const activeRoute = routes.find(r => r.selected);
+    const activeRoute = routes.find((r) => r.selected);
     if (!activeRoute) {
       toast.error("Please select a route first.");
       return;
     }
 
     if (!("geolocation" in navigator)) {
-      // Fallback: Use simulated movement along route if GPS unavailable
-      console.warn("Geolocation not available, using simulated movement");
-      toast.info("Using simulated navigation (GPS unavailable)");
-      
-      // Simulate position along route polyline
-      const startSimulation = () => {
-        let progress = 0;
-        const interval = setInterval(() => {
-          progress += 0.02; // Increment progress
-          if (progress >= 1) {
-            progress = 1;
-            clearInterval(interval);
-          }
-          
-          // Calculate position along route (simplified - use start position for now)
-          if (activeRoute.legs?.[0]?.start_location) {
-            setCurrentPosition({
-              lat: activeRoute.legs[0].start_location.lat,
-              lng: activeRoute.legs[0].start_location.lng,
-            });
-          }
-        }, 500);
-        
-        setAppState("navigating");
-        return interval;
-      };
-      
-      startSimulation();
+      toast.error("Geolocation is not supported in this browser.");
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
+    console.log("[Navigation] Starting navigation");
+
+    // Clear any previous watcher
+    if (geoWatchId !== null) {
+      navigator.geolocation.clearWatch(geoWatchId);
+      setGeoWatchId(null);
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
         const coords = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
         };
+        console.log("[Navigation] GPS update", coords);
         setCurrentPosition(coords);
-
-        const watchId = navigator.geolocation.watchPosition(
-          (pos) => {
-            setCurrentPosition({
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-            });
-          },
-          (error) => {
-            console.error("Geolocation watch error", error);
-            // Fallback to simulated movement if GPS fails during navigation
-            toast.warning("GPS unavailable, using route simulation");
-          },
-          {
-            enableHighAccuracy: true,
-            maximumAge: 1000,
-            timeout: 10000,
-          }
-        );
-
-        setGeoWatchId(watchId as number);
-        setAppState("navigating");
+        setAppState((prev) => (prev === "navigating" ? prev : "navigating"));
       },
       (error) => {
-        console.error("Geolocation error", error);
-        // Fallback: Use route start position if GPS fails
-        if (activeRoute.legs?.[0]?.start_location) {
-          toast.warning("GPS unavailable, using route start position");
-          setCurrentPosition({
-            lat: activeRoute.legs[0].start_location.lat,
-            lng: activeRoute.legs[0].start_location.lng,
-          });
-          setAppState("navigating");
-        } else {
-          toast.error("Unable to access your location. Please check permissions.");
-        }
+        console.error("[Navigation] Geolocation watch error", error);
+        toast.error("Unable to access your location. Please check permissions.");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000,
       }
     );
+
+    setGeoWatchId(watchId as number);
   };
 
   const handleStopNavigation = () => {
-    if (navigationProgress >= 100) {
-      setShowFeedback(true);
-    }
+    console.log("[Navigation] Navigation stopped by user");
     setAppState("routes");
     setNavigationProgress(0);
 
@@ -210,13 +185,31 @@ export default function NavigatePage() {
     setCurrentPosition(undefined);
   };
 
-  const handleNavigationProgress = (progress: number) => {
-    setNavigationProgress(progress);
-    if (progress >= 100) {
-      setAppState("completed");
-      setTimeout(() => setShowFeedback(true), 1000);
+  // GPS-based arrival detection: only this can mark journey as completed / show feedback
+  useEffect(() => {
+    if (appState !== "navigating" || !currentPosition || !selectedPlaces.destination) {
+      return;
     }
-  };
+
+    const dest = {
+      lat: selectedPlaces.destination.lat,
+      lng: selectedPlaces.destination.lng,
+    };
+
+    const dist = distanceMeters(currentPosition, dest);
+    console.log("[Navigation] Distance to destination (m)", dist);
+
+    if (dist <= 20) {
+      console.log("[Navigation] Arrival detected");
+      if (geoWatchId !== null) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        setGeoWatchId(null);
+      }
+      setNavigationProgress(100);
+      setAppState("completed");
+      setShowFeedback(true);
+    }
+  }, [appState, currentPosition, selectedPlaces.destination, geoWatchId]);
 
   const activeRoute = routes.find(r => r.selected);
 
@@ -296,13 +289,13 @@ export default function NavigatePage() {
             )}
           </AnimatePresence>
 
-          {/* Live Monitor */}
+          {/* Live Monitor (visual only; completion is GPS-based) */}
           <AnimatePresence>
             {appState === "navigating" && (
               <LiveMonitor
                 isActive={true}
                 onStop={handleStopNavigation}
-                onProgress={handleNavigationProgress}
+                progress={navigationProgress}
               />
             )}
           </AnimatePresence>
@@ -356,9 +349,15 @@ export default function NavigatePage() {
           )}
         </AnimatePresence>
 
-        {/* Feedback Form */}
+        {/* Feedback Form - only shown after GPS-based arrival */}
         <AnimatePresence>
-          {showFeedback && <FeedbackForm onClose={() => setShowFeedback(false)} />}
+          {showFeedback && activeRoute && (
+            <FeedbackForm
+              routeId={activeRoute.id}
+              finalSafetyScore={activeRoute.safetyScore}
+              onClose={() => setShowFeedback(false)}
+            />
+          )}
         </AnimatePresence>
       </div>
     </APIProvider>

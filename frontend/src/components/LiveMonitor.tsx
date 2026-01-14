@@ -9,49 +9,35 @@ import { Progress } from "@/components/ui/progress";
 interface LiveMonitorProps {
   isActive: boolean;
   onStop: () => void;
-  onProgress: (progress: number) => void;
+  progress?: number; // optional, visual only
 }
 
-export function LiveMonitor({ isActive, onStop, onProgress }: LiveMonitorProps) {
-  const [progress, setProgress] = useState(0);
+export function LiveMonitor({ isActive, onStop, progress = 0 }: LiveMonitorProps) {
+  const [internalProgress, setInternalProgress] = useState(0);
   const [showRerouteAlert, setShowRerouteAlert] = useState(false);
   const [safetyStatus, setSafetyStatus] = useState<"safe" | "warning" | "rerouting">("safe");
 
   useEffect(() => {
     if (!isActive) {
-      setProgress(0);
+      setInternalProgress(0);
       setShowRerouteAlert(false);
       setSafetyStatus("safe");
       return;
     }
 
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + 0.5;
-        onProgress(next);
+    setInternalProgress(progress);
 
-        // Simulate safety warning at 45%
-        if (next >= 45 && next < 50 && !showRerouteAlert) {
-          setSafetyStatus("warning");
-          setShowRerouteAlert(true);
-        }
+    // Optional: show warning based on real progress if wired later
+    if (progress >= 45 && progress < 50 && !showRerouteAlert) {
+      setSafetyStatus("warning");
+      setShowRerouteAlert(true);
+    }
 
-        // Auto-reroute at 55%
-        if (next >= 55) {
-          setSafetyStatus("safe");
-          setShowRerouteAlert(false);
-        }
-
-        if (next >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return next;
-      });
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [isActive, onProgress, showRerouteAlert]);
+    if (progress >= 55 && showRerouteAlert) {
+      setSafetyStatus("safe");
+      setShowRerouteAlert(false);
+    }
+  }, [isActive, progress, showRerouteAlert]);
 
   const handleAcceptReroute = () => {
     setSafetyStatus("rerouting");
@@ -113,9 +99,9 @@ export function LiveMonitor({ isActive, onStop, onProgress }: LiveMonitorProps) 
           <div className="mb-4">
             <div className="flex justify-between text-sm mb-2">
               <span className="text-muted-foreground">Journey Progress</span>
-              <span className="font-medium">{Math.round(progress)}%</span>
+              <span className="font-medium">{Math.round(internalProgress)}%</span>
             </div>
-            <Progress value={progress} className="h-2" />
+            <Progress value={internalProgress} className="h-2" />
           </div>
 
           {/* Current Info */}

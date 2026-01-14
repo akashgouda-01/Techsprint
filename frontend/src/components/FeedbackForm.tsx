@@ -10,9 +10,11 @@ import { useAuth } from "@/contexts/AuthContext";
 
 interface FeedbackFormProps {
   onClose: () => void;
+  routeId: string;
+  finalSafetyScore: number;
 }
 
-export function FeedbackForm({ onClose }: FeedbackFormProps) {
+export function FeedbackForm({ onClose, routeId, finalSafetyScore }: FeedbackFormProps) {
   const [lighting, setLighting] = useState<"well-lit" | "partial" | "poor" | null>(null);
   const [unsafetyScore, setUnsafetyScore] = useState<number | null>(null);
   const [activity, setActivity] = useState<"busy" | "moderate" | "isolated" | null>(null);
@@ -26,18 +28,18 @@ export function FeedbackForm({ onClose }: FeedbackFormProps) {
     try {
       await submitFeedback({
         userEmail: user?.email || 'anonymous',
+        routeId,
+        finalSafetyScore,
+        timestamp: new Date().toISOString(),
         // Context from form
         context: {
           lighting: lighting,
           activity: activity,
-          timestamp: new Date().toISOString()
         },
         // Labels
         safetyRating: unsafetyScore,
         wouldRetake: wouldRetake,
         concern: concern,
-        // Meta
-        location: { lat: 0, lng: 0 } // Mock location for now
       });
 
       setSubmitted(true);
