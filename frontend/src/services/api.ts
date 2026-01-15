@@ -1,7 +1,13 @@
 
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api'; // Base API URL
+// Get API base URL from environment variable, fallback to localhost for development
+// In production, set VITE_API_BASE_URL environment variable (e.g., https://your-backend.onrender.com)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_URL = `${API_BASE_URL}/api`;
+
+// Export API_URL for use in other components
+export { API_URL };
 
 export interface LatLng {
     lat: number;

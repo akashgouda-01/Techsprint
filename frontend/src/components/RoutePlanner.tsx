@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { MapPin, Navigation, Clock, Bike, Footprints, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SelectedPlace, geocodeAddress } from "@/services/api";
+import { SelectedPlace, geocodeAddress, API_URL } from "@/services/api";
 import { useMapsLibrary } from "@vis.gl/react-google-maps";
 import axios from "axios";
 
@@ -12,8 +12,6 @@ interface RoutePlannerProps {
   onSearch: (source: SelectedPlace, destination: SelectedPlace, mode: string) => void;
   isSearching?: boolean;
 }
-
-const API_URL = 'http://localhost:5000/api';
 
 export function RoutePlanner({ onSearch, isSearching }: RoutePlannerProps) {
   const [sourceInput, setSourceInput] = useState("");
