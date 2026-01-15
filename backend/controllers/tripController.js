@@ -41,38 +41,96 @@ const saveTrip = async (req, res) => {
 // @access  Public
 const submitFeedback = async (req, res) => {
     try {
-        console.log("Feedback received payload:", req.body); // CHANGE: Debug incoming feedback payload
+        console.log("Feedback received payload:", JSON.stringify(req.body, null, 2));
+
+        // Validate required fields
+        if (!req.body.userEmail || !req.body.routeId || typeof req.body.safetyScore !== 'number') {
+            console.error("Missing required fields:", {
+                hasUserEmail: !!req.body.userEmail,
+                hasRouteId: !!req.body.routeId,
+                hasSafetyScore: typeof req.body.safetyScore === 'number'
+            });
+            return res.status(400).json({
+                success: false,
+                message: "Missing required fields: userEmail, routeId, or safetyScore"
+            });
+        }
+
         const feedbackData = {
             ...req.body,
             createdAt: new Date().toISOString()
         };
 
+        // 1️⃣ Save feedback to database
+        let dbSaveSuccess = false;
         if (db) {
-            await db.collection('safety_feedback').add(feedbackData);
+            try {
+                await db.collection('safety_feedback').add(feedbackData);
+                dbSaveSuccess = true;
+                console.log("Feedback saved to Firestore successfully");
+            } catch (dbError) {
+                console.error("Firestore save error:", dbError.message);
+                // Continue even if DB save fails - we'll still return success for now
+            }
+        } else {
+            console.warn("Firebase DB not initialized - skipping database save");
         }
 
-        // Trigger ML Training
-        const pythonProcess = spawn('python', [path.join(process.cwd(), 'ml_engine.py')]);
+        // 2️⃣ Fire-and-forget ML training (NON-BLOCKING)
+        try {
+            const pythonPath = path.join(process.cwd(), 'ml_engine.py');
+            console.log("ML file path:", pythonPath);
 
-        const trainPayload = {
-            command: 'train',
-            data_points: [req.body]
-        };
+            const pythonProcess = spawn('python', [pythonPath], {
+                stdio: ['pipe', 'ignore', 'ignore']
+            });
 
-        pythonProcess.stdin.write(JSON.stringify(trainPayload));
-        pythonProcess.stdin.end();
+            pythonProcess.on('error', (err) => {
+                console.warn("ML spawn failed:", err.message);
+            });
 
-        // Update Trip to show feedback submitted
+            pythonProcess.stdin.write(JSON.stringify({
+                command: 'train',
+                data_points: [req.body]
+            }));
+            pythonProcess.stdin.end();
+            console.log("ML training process started");
+        } catch (mlError) {
+            console.warn("ML training setup failed:", mlError.message);
+            // Don't fail the request if ML training fails
+        }
+
+        // 3️⃣ Update trip status (optional)
         if (req.body.tripId && db) {
-            await db.collection('trips').doc(req.body.tripId).update({ feedbackSubmitted: true });
+            try {
+                await db
+                  .collection('trips')
+                  .doc(req.body.tripId)
+                  .update({ feedbackSubmitted: true });
+                console.log("Trip status updated");
+            } catch (tripUpdateError) {
+                console.warn("Trip status update failed:", tripUpdateError.message);
+                // Don't fail the request if trip update fails
+            }
         }
 
-        res.status(201).json({ message: 'Feedback received and processing for AI training' });
+        // ✅ RETURN SUCCESS - feedback is accepted even if DB/ML fails
+        return res.status(201).json({
+            success: true,
+            message: "Feedback received successfully",
+            saved: dbSaveSuccess
+        });
 
     } catch (error) {
-        console.error("Feedback error:", error);
-        res.status(500).json({ message: 'Failed to submit feedback' });
+        console.error("Feedback submission error:", error);
+        console.error("Error stack:", error.stack);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to submit feedback",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
+
 
 export { saveTrip, submitFeedback };

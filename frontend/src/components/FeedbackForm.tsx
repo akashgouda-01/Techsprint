@@ -28,7 +28,8 @@ export function FeedbackForm({ onClose, routeId, finalSafetyScore }: FeedbackFor
     try {
       // CHANGE: Log payload for debugging feedback submission issues
       console.log("[Feedback] Submitting feedback for route", routeId, "score", finalSafetyScore, "user", user?.email);
-      await submitFeedback({
+      
+      const payload = {
         userEmail: user?.email || 'anonymous',
         // CHANGE: Use explicit fields expected by backend/ML
         routeId,
@@ -43,18 +44,26 @@ export function FeedbackForm({ onClose, routeId, finalSafetyScore }: FeedbackFor
         safetyRating: unsafetyScore,
         wouldRetake: wouldRetake,
         concern: concern,
-      });
-
+      };
+      
+      console.log("[Feedback] Full payload:", payload);
+      
+      const result = await submitFeedback(payload);
+      
+      console.log("[Feedback] Submission successful:", result);
+      
       setSubmitted(true);
       toast({
         title: "Thank you for your feedback!",
         description: "Your data has been sent to our AI to separate safe routes from unsafe ones.",
       });
       setTimeout(onClose, 2000);
-    } catch (e) {
+    } catch (e: any) {
+      console.error("[Feedback] Submission error:", e);
+      const errorMessage = e?.message || "Could not save feedback. Try again.";
       toast({
         title: "Error submitting",
-        description: "Could not save feedback. Try again.",
+        description: errorMessage,
         variant: "destructive"
       });
     }
