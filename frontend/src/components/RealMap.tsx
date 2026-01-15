@@ -55,22 +55,80 @@ export function RealMap({
 
       if (!path || path.length === 0) return;
 
-      const polyline = new maps.Polyline({
-        path,
-        geodesic: true,
-        strokeColor: isSelected ? "#0f766e" : "#9ca3af",
-        strokeOpacity: isSelected ? 1.0 : 0.6,
-        strokeWeight: isSelected ? 5 : 4,
-        map,
-        zIndex: isSelected ? 10 : 1,
-        clickable: true,
-      });
+      // CHANGE: When navigating, split the selected route into completed vs remaining for visual trimming
+      if (showNavigation && currentPosition && isSelected && google.maps.geometry) {
+        let nearestIndex = 0;
+        let nearestDistance = Infinity;
 
-      polyline.addListener("click", () => {
-        if (onRouteSelect) onRouteSelect(route.id);
-      });
+        // Find the closest vertex on the route to the current user position
+        path.forEach((pt, idx) => {
+          const d = google.maps.geometry!.spherical.computeDistanceBetween(
+            new google.maps.LatLng(currentPosition),
+            new google.maps.LatLng(pt)
+          );
+          if (d < nearestDistance) {
+            nearestDistance = d;
+            nearestIndex = idx;
+          }
+        });
 
-      newPolylines.push(polyline);
+        console.log("[RealMap] Split route at index", nearestIndex, "distance to route (m)", nearestDistance);
+
+        const completedPath = path.slice(0, Math.max(nearestIndex, 1));
+        const remainingPath = path.slice(Math.max(nearestIndex - 1, 0));
+
+        if (completedPath.length > 1) {
+          const completedPolyline = new maps.Polyline({
+            path: completedPath,
+            geodesic: true,
+            strokeColor: "#9ca3af", // greyed-out completed segment
+            strokeOpacity: 0.4,
+            strokeWeight: 4,
+            map,
+            zIndex: 5,
+            clickable: true,
+          });
+          completedPolyline.addListener("click", () => {
+            if (onRouteSelect) onRouteSelect(route.id);
+          });
+          newPolylines.push(completedPolyline);
+        }
+
+        if (remainingPath.length > 1) {
+          const remainingPolyline = new maps.Polyline({
+            path: remainingPath,
+            geodesic: true,
+            strokeColor: "#0f766e", // highlighted remaining path
+            strokeOpacity: 1.0,
+            strokeWeight: 5,
+            map,
+            zIndex: 10,
+            clickable: true,
+          });
+          remainingPolyline.addListener("click", () => {
+            if (onRouteSelect) onRouteSelect(route.id);
+          });
+          newPolylines.push(remainingPolyline);
+        }
+      } else {
+        // Existing behavior for non-navigating or non-selected routes
+        const polyline = new maps.Polyline({
+          path,
+          geodesic: true,
+          strokeColor: isSelected ? "#0f766e" : "#9ca3af",
+          strokeOpacity: isSelected ? 1.0 : 0.6,
+          strokeWeight: isSelected ? 5 : 4,
+          map,
+          zIndex: isSelected ? 10 : 1,
+          clickable: true,
+        });
+
+        polyline.addListener("click", () => {
+          if (onRouteSelect) onRouteSelect(route.id);
+        });
+
+        newPolylines.push(polyline);
+      }
     });
 
     setPolylines(newPolylines);

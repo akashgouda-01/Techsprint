@@ -41,6 +41,12 @@ export default function NavigatePage() {
   const { user } = useAuth();
   const [appState, setAppState] = useState<AppState>("planning");
   const [navigationProgress, setNavigationProgress] = useState(0);
+  // CHANGE: Track ETA, distance, and segment details for real-time monitor updates
+  const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
+  const [totalDurationMinutes, setTotalDurationMinutes] = useState<number | null>(null); // CHANGE: Baseline route duration for ETA fallback
+  const [distanceTraveledMeters, setDistanceTraveledMeters] = useState(0);
+  const [remainingDistanceMeters, setRemainingDistanceMeters] = useState<number | null>(null);
+  const [activeSegmentName, setActiveSegmentName] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
   const [showRoutePlannerSheet, setShowRoutePlannerSheet] = useState(false);
@@ -50,6 +56,12 @@ export default function NavigatePage() {
   const [routes, setRoutes] = useState<any[]>([]);
   const [currentPosition, setCurrentPosition] = useState<google.maps.LatLngLiteral | undefined>(undefined);
   const [geoWatchId, setGeoWatchId] = useState<number | null>(null);
+  // CHANGE: Track route geometry and speed metrics for progress/ETA
+  const [routePath, setRoutePath] = useState<google.maps.LatLngLiteral[]>([]);
+  const [totalRouteDistanceMeters, setTotalRouteDistanceMeters] = useState<number | null>(null);
+  const [lastPosition, setLastPosition] = useState<google.maps.LatLngLiteral | null>(null);
+  const [lastPositionTimestamp, setLastPositionTimestamp] = useState<number | null>(null);
+  const [currentSpeedMps, setCurrentSpeedMps] = useState<number | null>(null);
   const [selectedPlaces, setSelectedPlaces] = useState<{
     source: SelectedPlace | null;
     destination: SelectedPlace | null;
@@ -109,6 +121,8 @@ export default function NavigatePage() {
             safetyLevel: seg.safetyLevel || (seg.score > 80 ? 'high' : (seg.score > 60 ? 'medium' : 'low')),
             factors: seg.factors || ["Analyzed Path"],
             score: seg.score,
+            // CHANGE: Preserve distance if backend provides it for better segment selection
+            distanceMeters: seg.distanceMeters ?? seg.distance ?? null,
           })),
           safety_breakdown: r.safety_breakdown || [],
         }));
@@ -159,6 +173,30 @@ export default function NavigatePage() {
           lng: pos.coords.longitude,
         };
         console.log("[Navigation] GPS update", coords);
+        // CHANGE: Track speed and movement deltas for ETA calculation
+        const now = Date.now();
+        let speedFromSensor = typeof pos.coords.speed === "number" ? pos.coords.speed : null;
+
+        if (lastPosition && lastPositionTimestamp) {
+          const elapsedSec = (now - lastPositionTimestamp) / 1000;
+          if (elapsedSec > 0) {
+            const deltaDist = distanceMeters(lastPosition, coords);
+            const derivedSpeed = deltaDist / elapsedSec;
+            if (!speedFromSensor || speedFromSensor <= 0) {
+              speedFromSensor = derivedSpeed;
+            }
+            console.log("[Navigation] Δdist (m)", deltaDist.toFixed(2), "Δt (s)", elapsedSec.toFixed(2), "derived speed (m/s)", derivedSpeed.toFixed(2));
+          }
+        }
+
+        if (speedFromSensor && speedFromSensor > 0) {
+          console.log("[Navigation] Using speed (m/s)", speedFromSensor);
+          setCurrentSpeedMps(speedFromSensor);
+        }
+
+        setLastPosition(coords);
+        setLastPositionTimestamp(now);
+
         setCurrentPosition(coords);
         setAppState((prev) => (prev === "navigating" ? prev : "navigating"));
       },
@@ -180,6 +218,13 @@ export default function NavigatePage() {
     console.log("[Navigation] Navigation stopped by user");
     setAppState("routes");
     setNavigationProgress(0);
+    // CHANGE: Reset navigation metrics when user stops
+    setEtaMinutes(null);
+    setDistanceTraveledMeters(0);
+    setRemainingDistanceMeters(null);
+    setActiveSegmentName(null);
+    setRoutePath([]);
+    setTotalRouteDistanceMeters(null);
 
     if (geoWatchId !== null) {
       navigator.geolocation.clearWatch(geoWatchId);
@@ -209,12 +254,152 @@ export default function NavigatePage() {
         setGeoWatchId(null);
       }
       setNavigationProgress(100);
+      setEtaMinutes(0); // CHANGE: Mark ETA as zero on arrival
       setAppState("completed");
       setShowFeedback(true);
     }
   }, [appState, currentPosition, selectedPlaces.destination, geoWatchId]);
 
   const activeRoute = routes.find(r => r.selected);
+
+  // CHANGE: Derive full route path and total distance from the active route polyline
+  useEffect(() => {
+    if (!activeRoute) {
+      setRoutePath([]);
+      setTotalRouteDistanceMeters(null);
+      setTotalDurationMinutes(null); // CHANGE: Reset baseline duration when no active route
+      return;
+    }
+
+    let path: google.maps.LatLngLiteral[] = activeRoute.points || [];
+
+    // Decode encoded polyline if points are not already present
+    if ((!path || path.length === 0) && activeRoute.encodedPolyline && (window as any)?.google?.maps?.geometry) {
+      try {
+        const decoded = (window as any).google.maps.geometry.encoding.decodePath(activeRoute.encodedPolyline);
+        path = decoded.map((p: google.maps.LatLng) => ({ lat: p.lat(), lng: p.lng() }));
+      } catch (e) {
+        console.warn("[Navigation] Failed to decode polyline for active route", e);
+      }
+    }
+
+    if (!path || path.length < 2) {
+      setRoutePath([]);
+      setTotalRouteDistanceMeters(null);
+      setTotalDurationMinutes(null);
+      return;
+    }
+
+    setRoutePath(path);
+
+    let total = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+      total += distanceMeters(path[i], path[i + 1]);
+    }
+    console.log("[Navigation] Total route distance (m)", total);
+    setTotalRouteDistanceMeters(total);
+
+    // CHANGE: Derive total duration in minutes from route metadata for initial ETA
+    let durationMinutes: number | null = null;
+    // Prefer Google Directions-style duration in seconds if available
+    const legDurationValue = activeRoute.legs?.[0]?.duration?.value;
+    if (typeof legDurationValue === "number") {
+      durationMinutes = legDurationValue / 60;
+    } else if (typeof activeRoute.duration?.value === "number") {
+      durationMinutes = activeRoute.duration.value / 60;
+    }
+    if (durationMinutes !== null) {
+      console.log("[Navigation] Total route duration (min)", durationMinutes);
+      setTotalDurationMinutes(durationMinutes);
+    } else {
+      setTotalDurationMinutes(null);
+    }
+  }, [activeRoute]);
+
+  // CHANGE: Update distance traveled, remaining distance, progress %, ETA, and active segment on GPS updates
+  useEffect(() => {
+    if (appState !== "navigating" || !currentPosition || routePath.length < 2 || !totalRouteDistanceMeters || totalRouteDistanceMeters <= 0) {
+      return;
+    }
+
+    // Find closest vertex on path to current position
+    let nearestIndex = 0;
+    let nearestDistance = Infinity;
+    routePath.forEach((pt, idx) => {
+      const d = distanceMeters(currentPosition, pt);
+      if (d < nearestDistance) {
+        nearestDistance = d;
+        nearestIndex = idx;
+      }
+    });
+
+    let traveled = 0;
+    for (let i = 0; i < nearestIndex; i++) {
+      traveled += distanceMeters(routePath[i], routePath[i + 1]);
+    }
+
+    const remaining = Math.max(totalRouteDistanceMeters - traveled, 0);
+
+    setDistanceTraveledMeters(traveled);
+    setRemainingDistanceMeters(remaining);
+
+    const progress = Math.max(0, Math.min(100, (traveled / totalRouteDistanceMeters) * 100));
+    setNavigationProgress(progress);
+
+    // ETA calculation using current speed if available
+    let etaMins: number | null = null;
+    if (currentSpeedMps && currentSpeedMps > 0.5 && remaining > 0) {
+      const etaSeconds = remaining / currentSpeedMps;
+      etaMins = etaSeconds / 60;
+    }
+    setEtaMinutes(etaMins);
+
+    // Choose active segment based on traveled distance and segment distances if provided
+    if (activeRoute && Array.isArray(activeRoute.segments) && activeRoute.segments.length > 0) {
+      const segments = activeRoute.segments;
+      const totalSegDistance = segments.reduce((sum: number, seg: any) => {
+        const d = typeof seg.distanceMeters === "number" ? seg.distanceMeters : 0;
+        return sum + d;
+      }, 0);
+
+      let segmentName = segments[0].name || "Route segment";
+
+      if (totalSegDistance > 0) {
+        let accumulated = 0;
+        for (const seg of segments) {
+          const d = typeof seg.distanceMeters === "number" ? seg.distanceMeters : 0;
+          if (traveled <= accumulated + d) {
+            segmentName = seg.name || segmentName;
+            break;
+          }
+          accumulated += d;
+        }
+      } else {
+        // Fallback: approximate by index based on progress along route
+        const idx = Math.min(
+          segments.length - 1,
+          Math.floor((progress / 100) * segments.length)
+        );
+        segmentName = segments[idx]?.name || segmentName;
+      }
+
+      setActiveSegmentName(segmentName);
+    }
+
+    console.log("[Navigation] Distance traveled (m)", traveled);
+    console.log("[Navigation] Remaining distance (m)", remaining);
+    console.log("[Navigation] Progress (%)", progress);
+    console.log("[Navigation] ETA (min)", etaMins);
+    console.log("[Navigation] Active segment", activeSegmentName);
+  }, [
+    appState,
+    currentPosition,
+    routePath,
+    totalRouteDistanceMeters,
+    currentSpeedMps,
+    activeRoute,
+    activeSegmentName,
+  ]);
 
   // Cleanup any active geolocation watcher on unmount
   useEffect(() => {
@@ -381,7 +566,13 @@ export default function NavigatePage() {
               <LiveMonitor
                 isActive={true}
                 onStop={handleStopNavigation}
+                // CHANGE: Feed real navigation metrics into live monitor
                 progress={navigationProgress}
+                etaMinutes={etaMinutes}
+                totalDurationMinutes={totalDurationMinutes ?? undefined}
+                distanceTraveledMeters={distanceTraveledMeters}
+                remainingDistanceMeters={remainingDistanceMeters}
+                activeSegmentName={activeSegmentName || undefined}
               />
             )}
           </AnimatePresence>

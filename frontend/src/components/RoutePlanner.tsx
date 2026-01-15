@@ -79,13 +79,19 @@ export function RoutePlanner({ onSearch, isSearching }: RoutePlannerProps) {
           }
 
           const location = place.geometry.location;
-          const lat = typeof location.lat === "function" ? location.lat() : location.lat;
-          const lng = typeof location.lng === "function" ? location.lng() : location.lng;
+          // CHANGE: Normalize lat/lng to plain numbers for TypeScript and downstream usage
+          const lat =
+            typeof location.lat === "function" ? location.lat() : Number(location.lat);
+          const lng =
+            typeof location.lng === "function" ? location.lng() : Number(location.lng);
 
-          setSourceInput(place.formatted_address || "");
+          // CHANGE: On mobile, rely on the actual input DOM value (what user tapped) as fallback
+          const resolvedDescription =
+            sourceInputRef.current?.value || place.formatted_address || "";
+          setSourceInput(resolvedDescription);
           setSelectedSource({
             placeId: place.place_id,
-            description: place.formatted_address || "",
+            description: resolvedDescription,
             lat,
             lng,
           });
@@ -144,13 +150,19 @@ export function RoutePlanner({ onSearch, isSearching }: RoutePlannerProps) {
           }
 
           const location = place.geometry.location;
-          const lat = typeof location.lat === "function" ? location.lat() : location.lat;
-          const lng = typeof location.lng === "function" ? location.lng() : location.lng;
+          // CHANGE: Normalize lat/lng to plain numbers for TypeScript and downstream usage
+          const lat =
+            typeof location.lat === "function" ? location.lat() : Number(location.lat);
+          const lng =
+            typeof location.lng === "function" ? location.lng() : Number(location.lng);
 
-          setDestinationInput(place.formatted_address || "");
+          // CHANGE: On mobile, rely on the actual input DOM value (what user tapped) as fallback
+          const resolvedDescription =
+            destinationInputRef.current?.value || place.formatted_address || "";
+          setDestinationInput(resolvedDescription);
           setSelectedDestination({
             placeId: place.place_id,
-            description: place.formatted_address || "",
+            description: resolvedDescription,
             lat,
             lng,
           });

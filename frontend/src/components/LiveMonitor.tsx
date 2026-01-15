@@ -10,9 +10,24 @@ interface LiveMonitorProps {
   isActive: boolean;
   onStop: () => void;
   progress?: number; // optional, visual only
+  // CHANGE: Optional navigation metrics fed from NavigatePage for real-time updates
+  etaMinutes?: number | null;
+  totalDurationMinutes?: number | null;
+  distanceTraveledMeters?: number | null;
+  remainingDistanceMeters?: number | null;
+  activeSegmentName?: string | null;
 }
 
-export function LiveMonitor({ isActive, onStop, progress = 0 }: LiveMonitorProps) {
+export function LiveMonitor({
+  isActive,
+  onStop,
+  progress = 0,
+  etaMinutes,
+  totalDurationMinutes,
+  distanceTraveledMeters,
+  remainingDistanceMeters,
+  activeSegmentName,
+}: LiveMonitorProps) {
   const [internalProgress, setInternalProgress] = useState(0);
   const [showRerouteAlert, setShowRerouteAlert] = useState(false);
   const [safetyStatus, setSafetyStatus] = useState<"safe" | "warning" | "rerouting">("safe");
@@ -26,6 +41,21 @@ export function LiveMonitor({ isActive, onStop, progress = 0 }: LiveMonitorProps
     }
 
     setInternalProgress(progress);
+
+    // CHANGE: Log navigation metrics for temporary debugging
+    console.log("[LiveMonitor] Progress (%)", progress);
+    if (typeof distanceTraveledMeters === "number") {
+      console.log("[LiveMonitor] Distance traveled (m)", distanceTraveledMeters);
+    }
+    if (typeof remainingDistanceMeters === "number") {
+      console.log("[LiveMonitor] Remaining distance (m)", remainingDistanceMeters);
+    }
+    if (typeof etaMinutes === "number") {
+      console.log("[LiveMonitor] ETA (min)", etaMinutes);
+    }
+    if (activeSegmentName) {
+      console.log("[LiveMonitor] Active segment", activeSegmentName);
+    }
 
     // Optional: show warning based on real progress if wired later
     if (progress >= 45 && progress < 50 && !showRerouteAlert) {
@@ -108,10 +138,30 @@ export function LiveMonitor({ isActive, onStop, progress = 0 }: LiveMonitorProps
           <div className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Navigation className="w-4 h-4 text-primary" />
-              <span>ETA: {Math.round((100 - progress) / 5)} min</span>
+              {/* CHANGE: Prefer real ETA from navigation state, fall back to duration-based estimate then simple heuristic */}
+              <span>
+                ETA:{" "}
+                {typeof etaMinutes === "number"
+                  ? `${Math.max(0, Math.round(etaMinutes))} min`
+                  : typeof totalDurationMinutes === "number"
+                  ? `${Math.max(
+                      0,
+                      Math.round(totalDurationMinutes * (1 - internalProgress / 100))
+                    )} min`
+                  : `${Math.round((100 - internalProgress) / 5)} min`}
+              </span>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
-              <span>Next segment: {progress < 33 ? "Brigade Road" : progress < 66 ? "Church Street" : "Destination"}</span>
+              {/* CHANGE: Use dynamic segment name from route data when available */}
+              <span>
+                Next segment:{" "}
+                {activeSegmentName ||
+                  (progress < 33
+                    ? "Brigade Road"
+                    : progress < 66
+                    ? "Church Street"
+                    : "Destination")}
+              </span>
             </div>
           </div>
         </CardContent>

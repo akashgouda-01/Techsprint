@@ -26,10 +26,13 @@ export function FeedbackForm({ onClose, routeId, finalSafetyScore }: FeedbackFor
 
   const handleSubmit = async () => {
     try {
+      // CHANGE: Log payload for debugging feedback submission issues
+      console.log("[Feedback] Submitting feedback for route", routeId, "score", finalSafetyScore, "user", user?.email);
       await submitFeedback({
         userEmail: user?.email || 'anonymous',
+        // CHANGE: Use explicit fields expected by backend/ML
         routeId,
-        finalSafetyScore,
+        safetyScore: finalSafetyScore,
         timestamp: new Date().toISOString(),
         // Context from form
         context: {

@@ -41,6 +41,7 @@ const saveTrip = async (req, res) => {
 // @access  Public
 const submitFeedback = async (req, res) => {
     try {
+        console.log("Feedback received payload:", req.body); // CHANGE: Debug incoming feedback payload
         const feedbackData = {
             ...req.body,
             createdAt: new Date().toISOString()
