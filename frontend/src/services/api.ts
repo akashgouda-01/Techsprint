@@ -1,7 +1,7 @@
 
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api'; // Base API URL
+const API_URL = 'https://saferouteai-backend.onrender.com'; // Base API URL
 
 export interface LatLng {
     lat: number;
