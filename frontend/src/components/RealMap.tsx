@@ -24,7 +24,7 @@ export function RealMap({
   onRouteSelect,
   showNavigation,
   currentPosition,
-  center = { lat: 13.0843, lng: 80.2705 }, // Default to Bangalore
+  center = { lat: 13.0843, lng: 80.2705 }, // Default to Chennai
 }: RealMapProps) {
   const map = useMap();
   const maps = useMapsLibrary("maps");
