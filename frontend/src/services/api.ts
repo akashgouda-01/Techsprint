@@ -62,31 +62,6 @@ export const saveTrip = async (tripData: {
 };
 
 export const submitFeedback = async (feedbackData: any) => {
-    try {
-        console.log("[API] Submitting feedback to:", `${API_URL}/trips/feedback`);
-        console.log("[API] Payload:", JSON.stringify(feedbackData, null, 2));
-        
-        const response = await axios.post(`${API_URL}/trips/feedback`, feedbackData, {
-            timeout: 10000, // 10 second timeout
-        });
-        
-        console.log("[API] Feedback response:", response.status, response.data);
-        return response.data;
-    } catch (error: any) {
-        console.error("[API] Feedback submission error:", error);
-        console.error("[API] Error response:", error.response?.data);
-        console.error("[API] Error status:", error.response?.status);
-        
-        // Re-throw with more context
-        if (error.response) {
-            // Server responded with error status
-            throw new Error(error.response.data?.message || `Server error: ${error.response.status}`);
-        } else if (error.request) {
-            // Request made but no response
-            throw new Error("Network error: Could not reach server. Please check your connection.");
-        } else {
-            // Something else happened
-            throw new Error(error.message || "Failed to submit feedback");
-        }
-    }
+    const response = await axios.post(`${API_URL}/trips/feedback`, feedbackData);
+    return response.data;
 };
